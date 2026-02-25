@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>MedCentre Enterprise X - Hospital Grade</title>
+<title>MedCentre Enterprise X</title>
 
 <style>
 :root{
@@ -24,12 +24,13 @@ display:flex;
 height:100vh;
 }
 .sidebar{
-width:280px;
+width:260px;
 background:var(--primary);
 color:white;
 padding:20px;
 overflow-y:auto;
 }
+.sidebar h2{margin-top:0;}
 .sidebar li{
 list-style:none;
 padding:10px;
@@ -50,7 +51,7 @@ border-radius:10px;
 box-shadow:0 4px 12px rgba(0,0,0,0.08);
 }
 button{
-padding:8px 14px;
+padding:8px 12px;
 border:none;
 border-radius:6px;
 cursor:pointer;
@@ -82,8 +83,16 @@ color:white;
 }
 .status-pending{background:var(--warning);}
 .status-complete{background:var(--success);}
-.status-active{background:var(--accent);}
 .low-stock{color:var(--danger);font-weight:bold;}
+.topbar{
+display:flex;
+justify-content:space-between;
+align-items:center;
+margin-bottom:20px;
+}
+select{
+background:white;
+}
 </style>
 </head>
 
@@ -91,8 +100,6 @@ color:white;
 
 <div class="sidebar">
 <h2>🏥 MedCentre X</h2>
-<div id="roleDisplay"></div>
-<hr>
 <li onclick="Router.go('dashboard')">Dashboard</li>
 <li onclick="Router.go('patients')">Patients</li>
 <li onclick="Router.go('consultations')">Consultations</li>
@@ -100,51 +107,63 @@ color:white;
 <li onclick="Router.go('pharmacy')">Pharmacy</li>
 <li onclick="Router.go('billing')">Billing</li>
 <li onclick="Router.go('reports')">Reports</li>
-<li onclick="Router.go('audit')">Audit</li>
+<li onclick="Router.go('audit')">Audit Log</li>
 </div>
 
 <div class="main">
+<div class="topbar">
 <h1 id="pageTitle">Dashboard</h1>
+<div>
+Role:
+<select id="roleSelect" onchange="Auth.setRole(this.value)">
+<option>Admin</option>
+<option>Doctor</option>
+<option>Lab</option>
+<option>Pharmacy</option>
+<option>Reception</option>
+</select>
+</div>
+</div>
 <div id="app"></div>
 </div>
 
 <script>
 
-/* CONFIG */
+/* ================= CONFIG ================= */
 
 const CONFIG={
-MODE:"LOCAL",
-CONSULT_FEE:20
+MODE:"LOCAL", // change to JSONBIN later
+CONSULT_FEE:25
 };
 
-/* UTIL */
+/* ================= UTIL ================= */
 
 const Util={
 id:()=>Date.now()+Math.random().toString(16).slice(2),
 now:()=>new Date().toISOString()
 };
 
-/* RBAC */
+/* ================= RBAC ================= */
 
 const Auth={
 role:"Admin",
+setRole(r){this.role=r; Router.go("dashboard");},
 can(module){
-const permissions={
+const map={
 Admin:["*"],
 Doctor:["dashboard","patients","consultations"],
 Lab:["laboratory"],
 Pharmacy:["pharmacy"],
 Reception:["patients","billing"]
 };
-return permissions[this.role].includes("*") ||
-permissions[this.role].includes(module);
+return map[this.role].includes("*") || map[this.role].includes(module);
 }
 };
 
-/* DATA */
+/* ================= DATA ================= */
 
-class DataProvider{
-static load(){
+const Storage={
+load(){
 return {
 patients:JSON.parse(localStorage.getItem("patients"))||[],
 consultations:JSON.parse(localStorage.getItem("consultations"))||[],
@@ -153,37 +172,42 @@ pharmacy:JSON.parse(localStorage.getItem("pharmacy"))||[],
 billing:JSON.parse(localStorage.getItem("billing"))||[],
 audit:JSON.parse(localStorage.getItem("audit"))||[]
 };
-}
-static save(data){
-Object.keys(data).forEach(k=>localStorage.setItem(k,JSON.stringify(data[k])));
-}
-}
-
-/* STATE */
-
-const State={
-data:null,
-init(){this.data=DataProvider.load();},
-save(){DataProvider.save(this.data);},
-log(action){
-this.data.audit.push({id:Util.id(),action,time:Util.now()});
+},
+save(data){
+Object.keys(data).forEach(k=>{
+localStorage.setItem(k,JSON.stringify(data[k]));
+});
 }
 };
 
-/* ROUTER */
+/* ================= STATE ================= */
+
+const State={
+data:null,
+init(){this.data=Storage.load();},
+save(){Storage.save(this.data);},
+log(action){
+this.data.audit.push({
+id:Util.id(),
+action,
+time:Util.now(),
+role:Auth.role
+});
+}
+};
+
+/* ================= ROUTER ================= */
 
 const Router={
 go(page){
-if(!Auth.can(page)){
-alert("Access Denied");
-return;
-}
-document.getElementById("pageTitle").innerText=page;
+if(!Auth.can(page)){ alert("Access Denied"); return; }
+document.getElementById("pageTitle").innerText=
+page.charAt(0).toUpperCase()+page.slice(1);
 document.getElementById("app").innerHTML=Modules[page]();
 }
 };
 
-/* MODULES */
+/* ================= MODULES ================= */
 
 const Modules={
 
@@ -200,10 +224,11 @@ dashboard:()=>`
 
 patients:()=>`
 <div class="card">
-<input id="p_name" placeholder="Name">
+<h3>Register Patient</h3>
+<input id="p_name" placeholder="Full Name">
 <input id="p_dob" type="date">
 <input id="p_phone" placeholder="Phone">
-<button onclick="addPatient()">Register</button>
+<button onclick="addPatient()">Save</button>
 </div>
 <div class="card">
 ${State.data.patients.map(p=>`
@@ -214,38 +239,52 @@ ${State.data.patients.map(p=>`
 
 consultations:()=>`
 <div class="card">
+<h3>SOAP Consultation</h3>
 <input id="c_patient" placeholder="Patient">
-<textarea id="c_note" placeholder="SOAP Note"></textarea>
-<button onclick="saveConsult()">Save & Bill</button>
+<textarea id="c_note" placeholder="SOAP Notes"></textarea>
+<button onclick="saveConsult()">Save & Auto Bill</button>
 </div>
 `,
 
 laboratory:()=>`
 <div class="card">
+<h3>Order Lab</h3>
 <input id="lab_patient" placeholder="Patient">
 <input id="lab_test" placeholder="Test">
 <input id="lab_fee" type="number" placeholder="Fee">
-<button onclick="orderLab()">Order Lab</button>
+<button onclick="orderLab()">Order</button>
+</div>
+<div class="card">
+${State.data.labs.map(l=>`
+<p>${l.patient} | ${l.test} | 
+<span class="badge status-${l.status}">${l.status}</span>
+</p>
+`).join("")}
 </div>
 `,
 
 pharmacy:()=>`
 <div class="card">
-<input id="drug_name" placeholder="Drug">
+<h3>Add Drug</h3>
+<input id="drug_name" placeholder="Drug Name">
 <input id="drug_stock" type="number" placeholder="Stock">
 <input id="drug_price" type="number" placeholder="Unit Price">
-<button onclick="addDrug()">Add Drug</button>
+<button onclick="addDrug()">Add</button>
 </div>
 <div class="card">
 ${State.data.pharmacy.map(d=>`
-<p>${d.name} | Stock: <span class="${d.stock<5?'low-stock':''}">
-${d.stock}</span></p>
+<p>${d.name} | 
+Stock: <span class="${d.stock<5?'low-stock':''}">
+${d.stock}</span> | 
+$${d.price}
+</p>
 `).join("")}
 </div>
 `,
 
 billing:()=>`
 <div class="card">
+<h3>Billing Records</h3>
 ${State.data.billing.map(b=>`
 <p>${b.patient} | $${b.amount}</p>
 `).join("")}
@@ -263,13 +302,13 @@ reports:()=>`
 audit:()=>`
 <div class="card">
 ${State.data.audit.map(a=>`
-<p>${a.action} - ${a.time}</p>
+<p>${a.time} | ${a.role} | ${a.action}</p>
 `).join("")}
 </div>
 `
 };
 
-/* OPERATIONS */
+/* ================= OPERATIONS ================= */
 
 function addPatient(){
 State.data.patients.push({
@@ -295,7 +334,7 @@ id:Util.id(),
 patient:c_patient.value,
 amount:CONFIG.CONSULT_FEE
 });
-State.log("Consultation + Auto Billing");
+State.log("Consultation + Billing");
 State.save();
 Router.go("dashboard");
 }
@@ -313,7 +352,7 @@ id:Util.id(),
 patient:lab_patient.value,
 amount:lab_fee.value
 });
-State.log("Lab Ordered + Auto Billing");
+State.log("Lab Ordered + Billing");
 State.save();
 Router.go("dashboard");
 }
@@ -330,10 +369,9 @@ State.save();
 Router.go("pharmacy");
 }
 
-/* INIT */
+/* ================= INIT ================= */
 
 State.init();
-document.getElementById("roleDisplay").innerText="Role: "+Auth.role;
 Router.go("dashboard");
 
 </script>
